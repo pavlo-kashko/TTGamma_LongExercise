@@ -847,14 +847,14 @@ class TTGammaProcessor(processor.ProcessorABC):
                 )
 
                 # fill M3 histogram, for events passing the phosel selection
-                output["M3"].fill(
-                    dataset=dataset,
-                    M3=np.asarray(ak.flatten(M3[phosel])),
-                    category=np.asarray(phoCategory[phosel]),
-                    lepFlavor=lepton,
-                    systematic=syst,
-                    weight=evtWeight[phosel],
-                )
+#                output["M3"].fill(
+#                    dataset=dataset,
+#                    M3=np.asarray(ak.flatten(M3[phosel])),
+#                    category=np.asarray(phoCategory[phosel]),
+#                    lepFlavor=lepton,
+#                    systematic=syst,
+#                    weight=evtWeight[phosel],
+#                )
 
             # use the selection.all() method to select events passing the eleSel or muSel selection,
             # and the 3-jet 0-btag selection, and have exactly one photon
@@ -863,7 +863,7 @@ class TTGammaProcessor(processor.ProcessorABC):
                             'muon': selection.all("muSel", "jetSel_3j0b", "onePho")
                            }
 
-            for lepton in phosel_3j0t.keys():
+#            for lepton in phosel_3j0t.keys():
                 # output["photon_lepton_mass_3j0t"].fill()  # FIXME 3
 
             output["EventCount"] = len(events)

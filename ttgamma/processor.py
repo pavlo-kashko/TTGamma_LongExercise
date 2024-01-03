@@ -1,8 +1,6 @@
 import time
 
 import coffea.processor as processor
-#from coffea import hist
-#coffea hist deprecated in favor of
 import hist
 from coffea.analysis_tools import PackedSelection, Weights
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
@@ -50,7 +48,8 @@ def generatorOverlapRemoval(events, ptCut, etaCut, deltaRCut):
     genpdgid = events.GenPart.pdgId
 
     # potential overlap photons are only those passing the kinematic cuts
-    # if the overlap photon is actually from a non prompt decay (maxParent > 37), it's not part of the phase space of the separate sample
+    # if the overlap photon is actually from a non prompt decay (maxParent > 37),
+    # it's not part of the phase space of the separate sample
     overlapPhoSelect = (
         (events.GenPart.pt >= ptCut)
         & (abs(events.GenPart.eta) < etaCut)
@@ -78,7 +77,8 @@ def generatorOverlapRemoval(events, ptCut, etaCut, deltaRCut):
     # ensure none of them are within the deltaR cut
     phoGenMask = ak.all(phoGenDR > deltaRCut, axis=-1)
 
-    # the event is overlapping with the separate sample if there is an overlap photon passing the dR cut, kinematic cuts, and not coming from hadronic activity
+    # the event is overlapping with the separate sample if there is an overlap photon
+    # passing the dR cut, kinematic cuts, and not coming from hadronic activity
     isOverlap = ak.any(phoGenMask, axis=-1)
     return ~isOverlap
 
@@ -238,56 +238,51 @@ class TTGammaProcessor(processor.ProcessorABC):
 
         systematic_axis = hist.axis.StrCategory([], name="systematic", label="Systematic uncertainty", growth=True)
 
-        m3_axis = hist.axis.Regular(200, 0.0, 1000, name="M3", label=r"$M_3$ [GeV]")
-        mass_axis = hist.axis.Regular(400, 0.0, 400, name="mass", label=r"$m_{\ell\gamma}$ [GeV]")
+        m3_axis = hist.axis.Regular(80, 0.0, 1000, name="M3", label=r"$M_3$ [GeV]")
+        mass_axis = hist.axis.Regular(200, 0.0, 200, name="mass", label=r"$m_{\ell\gamma}$ [GeV]")
         pt_axis = hist.axis.Regular(200, 0.0, 1000, name="pt", label=r"$p_{T}$ [GeV]")
-        eta_axis = hist.axis.Regular(300, -1.5, 1.5, name="eta", label=r"$\eta_{\gamma}$")
-        chIso_axis = hist.axis.Regular(400, -0.1, 20.0, name="chIso", label=r"Charged Hadron Isolation")
+        eta_axis = hist.axis.Regular(60, -1.5, 1.5, name="eta", label=r"$\eta_{\gamma}$")
+        chIso_axis = hist.axis.Regular(200, 0.0, 10.0, name="chIso", label=r"Charged Hadron Isolation")
 
         ## Define axis to keep track of photon category
         phoCategory_axis = hist.axis.IntCategory([1, 2, 3, 4, 5], name="category", label=r"Photon Category")
         
-        ## And the dataset
-        dataset_axis = hist.axis.StrCategory([], name="dataset", label="Dataset", growth=True)
-
         self.make_output = lambda: { 
             # Test histogram; not needed for final analysis but useful to check things are working
-            "all_photon_pt": hist.Hist(
-                dataset_axis,
-                pt_axis),
+            "all_photon_pt": hist.Hist(pt_axis, storage="weight"),
             ## book histograms for photon pt, eta, and charged hadron isolation
             "photon_pt": hist.Hist(
-                dataset_axis,
                 pt_axis,
                 phoCategory_axis,
                 lep_axis,
                 systematic_axis,
+                storage="weight",
             ),
             # "photon_eta": hist.Hist(...),  # FIXME 3
             "photon_chIso": hist.Hist(
-                dataset_axis,
                 chIso_axis,
                 phoCategory_axis,
                 lep_axis,
                 systematic_axis,
+                storage="weight",
             ),
             ## book histogram for photon/lepton mass in a 3j0t region
             "photon_lepton_mass_3j0t": hist.Hist(
-                dataset_axis,
                 mass_axis,
                 phoCategory_axis,
                 lep_axis,
                 systematic_axis,
+                storage="weight",
             ),
             ## book histogram for M3 variable
             "M3": hist.Hist(
-                dataset_axis,
                 m3_axis,
                 phoCategory_axis,
                 lep_axis,
                 systematic_axis,
+                storage="weight",
             ),
-            "EventCount": processor.value_accumulator(int),
+            "EventCount": 0,
         }
         
     def process(self, events):
@@ -324,10 +319,7 @@ class TTGammaProcessor(processor.ProcessorABC):
         # after each step (for example, after defining tightPhotons
         # Remember not to fill it if we are in a shift systematic though
         if shift_syst is None:
-            output["all_photon_pt"].fill(
-                dataset=dataset,
-                pt=ak.flatten(events.Photon.pt)
-            )
+            output["all_photon_pt"].fill(pt=ak.flatten(events.Photon.pt))
 
         #################
         # OVERLAP REMOVAL
@@ -405,11 +397,9 @@ class TTGammaProcessor(processor.ProcessorABC):
             elif shift_syst == "JERDown":
                 jets = corrected_jets.JER.down
             elif shift_syst == "JESUp":
-                print('help!')
-                # jets = ? # FIXME 1a 
+                jets = corrected_jets  # FIXME 4
             elif shift_syst == "JESDown":
-                print('help!')
-                # jets = ? # FIXME 1a 
+                jets = corrected_jets  # FIXME 4
             else:
                 # either nominal or some shift systematic unrelated to jets
                 jets = corrected_jets
@@ -423,16 +413,14 @@ class TTGammaProcessor(processor.ProcessorABC):
         # select good jets
         # jets should have a pt of at least 30 GeV, |eta| < 2.4, pass the medium jet id
         # (bit-wise selected from the jetID variable), and pass the cross-cleaning cuts defined above
-        mediumJetIDbit = 1
+        mediumJetIDbit = 0b10
 
         tightJet = jets[
             (abs(jets.eta) < 2.4)
-            & (jets.pt > 30)
-            & ((jets.jetId >> mediumJetIDbit & 1) == 1)
-            & jetMuMask
-            & jetEleMask
+            & (jets.pt > 20)
+            & (jets.jetId & mediumJetIDbit == mediumJetIDbit)
             & jetPhoMask
-        ]
+        ]  # FIXME 1a
 
         # label the subset of tightJet which pass the Deep CSV tagger
         bTagWP = 0.6321  # 2016 DeepCSV working point
@@ -557,8 +545,8 @@ class TTGammaProcessor(processor.ProcessorABC):
             phoCategory = categorizeGenPhoton(leadingPhoton)
             phoCategoryLoose = categorizeGenPhoton(leadingPhotonLoose)
         else:
-            phoCategory = np.ones(len(events))
-            phoCategoryLoose = np.ones(len(events))
+            phoCategory = np.ones(len(events), dtype="i4")
+            phoCategoryLoose = phoCategory
 
         ################
         # EVENT WEIGHTS
@@ -815,19 +803,17 @@ class TTGammaProcessor(processor.ProcessorABC):
                 # the lepton selection, 4-jet 1-tag jet selection, and either the one-photon or loose-photon selections
                 phosel = selection.all(lepSel, "jetSel_4j1b", "onePho")
                 phoselLoose = selection.all(
-                    lepSel, "jetSel_4j1b", "zeroPho"
+                    lepSel, "jetSel_4j1b", "onePho"
                 )  # FIXME 3
 
                 # fill photon_pt and photon_eta, using the leadingPhoton array, from events passing the phosel selection
                 # Make sure to apply the correct mask to the category, weight, and photon pt or eta
                 # Although some elements of leadingPhoton or phoCategory may be 'None' for events without a good photon,
                 # in principle there should be no None elements after selection since the leadingPhoton should always be defined when phosel is True
-                # Because of this, we have to use np.asarray(...) since coffea.hist can only accept numpy-compatible arrays
 
                 output["photon_pt"].fill(
-                    dataset=dataset,
-                    pt=np.asarray(leadingPhoton.pt[phosel]),
-                    category=np.asarray(phoCategory[phosel]),
+                    pt=leadingPhoton.pt[phosel],
+                    category=phoCategory[phosel],
                     lepFlavor=lepton,
                     systematic=syst,
                     weight=evtWeight[phosel],
@@ -837,9 +823,8 @@ class TTGammaProcessor(processor.ProcessorABC):
 
                 # fill photon_chIso histogram, using the loosePhotons array (photons passing all cuts, except the charged hadron isolation cuts)
                 output["photon_chIso"].fill(
-                    dataset=dataset,
-                    chIso=np.asarray(leadingPhotonLoose.chIso[phoselLoose]),
-                    category=np.asarray(phoCategoryLoose[phoselLoose]),
+                    chIso=leadingPhotonLoose.chIso[phoselLoose],
+                    category=phoCategoryLoose[phoselLoose],
                     lepFlavor=lepton,
                     systematic=syst,
                     weight=evtWeight[phoselLoose],
@@ -847,13 +832,12 @@ class TTGammaProcessor(processor.ProcessorABC):
 
                 # fill M3 histogram, for events passing the phosel selection
 #                output["M3"].fill(
-#                    dataset=dataset,
-#                    M3=np.asarray(ak.flatten(M3[phosel])),
-#                    category=np.asarray(phoCategory[phosel]),
+#                    M3=ak.flatten(M3[phosel]),
+#                    category=phoCategory[phosel],
 #                    lepFlavor=lepton,
 #                    systematic=syst,
 #                    weight=evtWeight[phosel],
-#                )
+#                ) # FIXME 3
 
             # use the selection.all() method to select events passing the eleSel or muSel selection,
             # and the 3-jet 0-btag selection, and have exactly one photon
@@ -865,9 +849,9 @@ class TTGammaProcessor(processor.ProcessorABC):
 #            for lepton in phosel_3j0t.keys():
                 # output["photon_lepton_mass_3j0t"].fill()  # FIXME 3
 
+        if shift_syst is None:
             output["EventCount"] = len(events)
-
-        return {dataset:output}
+        return {dataset: output}
 
     def postprocess(self, accumulator):
         return accumulator

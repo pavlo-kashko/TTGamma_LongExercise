@@ -14,6 +14,11 @@ import sys
 import os
 
 import argparse
+import warnings
+from numba.core.errors import NumbaDeprecationWarning
+
+warnings.filterwarnings("ignore", "Found duplicate branch")
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 
 # Define mapping for running on condor
 mc_group_mapping = {
@@ -90,7 +95,8 @@ if __name__ == "__main__":
             print("Are you sure you want to use only one worker?")
         cluster = LPCCondorCluster(
             transfer_input_files="ttgamma",
-#            log_directory="/uscms/home/ncsmith/dask_logs",
+            # memory="4GB",
+            # log_directory="/uscms/home/ncsmith/dask_logs",
         )
         cluster.adapt(minimum=1, maximum=args.workers)
         executor = processor.DaskExecutor(client=Client(cluster), status=not args.batch)
@@ -139,10 +145,14 @@ if __name__ == "__main__":
                     obj *= lumi_sf
 
     elapsed = time.time() - tstart
+    nevt = sum(h["EventCount"] for h in output.values())
     print(f"Total time: {elapsed:.1f} seconds")
-#    print("Total rate: %.1f events / second" % (output["EventCount"].value / elapsed))
+    print("Total rate: %.1f events / second" % (nevt / elapsed))
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     outfile = os.path.join(args.outdir, f"output_{args.mcGroup}_run{timestamp}.coffea")
     util.save(output, outfile)
     print(f"Saved output to {outfile}")
+
+    if args.executor == "lpcjq":
+        cluster.close()

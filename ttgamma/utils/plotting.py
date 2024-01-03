@@ -45,12 +45,13 @@ def __check_scikit_axis_compat(axis1, axis2):
     assert axis1.name == axis2.name, \
     'Naming of the axis is required to match'
     # Getting the new bin edges index for the old bin edges
-    try:
-        return [
-        np.argwhere(axis1.edges == new_edge)[0][0] for new_edge in axis2.edges
-        ]
-    except IndexError as err:
-        raise ValueError(f"Bin edges of the axis {axis2} is incompatible with {axis1}")
+    out = []
+    for new_edge in axis2.edges:
+        idx = np.argwhere(axis1.edges == new_edge)
+        if not len(idx):
+            raise ValueError(f"Bin edges of the axis {axis2} is incompatible with {axis1}: {new_edge!r} not found")
+        out.append(idx[0, 0])
+    return out
 
 
 def _get_all_indices(axis):
@@ -114,10 +115,18 @@ def _rebin_single_scikit(h, old_axis, new_axis):
         start = new_bin_edge_idx[index]
         stop = new_bin_edge_idx[index + 1]
         if start == hist.underflow:
-            start = -1
+            if stop == 0:
+                return hist.underflow
+            start = None
+        else:
+            start = int(start)
         if stop == hist.overflow:
-            stop = len(old_axis)
-        return slice(int(start), int(stop))
+            if start == len(old_axis):
+                return hist.overflow
+            stop = None
+        else:
+            stop = int(stop)
+        return slice(start, stop, sum)
 
     new_axis_idx = _get_all_indices(new_axis)
     new_int_slice = [make_slice(i) for i in range(len(new_axis_idx))]
@@ -135,52 +144,49 @@ def _rebin_single_scikit(h, old_axis, new_axis):
         n_uhi = {name: n[name_idx] for name_idx, name in enumerate(name_list)}
         o_uhi = {name: o[name_idx] for name_idx, name in enumerate(name_list)}
         # Single variable histogram, with just the axis of interest
-        h_rebinned[n_uhi] = integrate_hist_scikit(h, **o_uhi)
+        h_rebinned[n_uhi] = h[o_uhi]
 
     return h_rebinned
-
-def integrate_hist_scikit(h, **kwargs):
-    """
-    Given a scikit-hist histogram object return a reduced histogram with specified
-    axes integrated out.
-    For scikit-hist histograms, the integration should be formed in 3 steps:
-    - slicing the histogram to contain only the range of interest
-    - Setting overflow values to 0 (excluding the values from future calculations)
-    - Summing over the axes of interest.
-    The latter 2 steps will only be carried out if the var_slice doesn't uniquely
-    identify a singular bin in the histogram axis
-    """
-    # Reduction in parallel.
-    r = h[kwargs]
-    for var, var_slice in kwargs.items():
-        # In the case that histogram has been reduced to singular value simple return
-        #if not isinstance(r, hist.NamedHist):
-        #    return r
-        if var in [x.name for x in r.axes]:
-            ax = h.axes[var]
-            
-            get_underflow = var_slice.start == None or var_slice.start == -1
-            get_overflow = var_slice.stop == None or var_slice.stop == len(ax)
-            if not get_underflow and ax.traits.underflow:
-                r[{var: hist.underflow}] = np.zeros_like(r[{var: hist.underflow}])
-            if not get_overflow and ax.traits.overflow:
-                r[{var: hist.overflow}] = np.zeros_like(r[{var: hist.overflow}])
-                
-            # Sum over all remaining elements on axis
-            r = r[{var: sum}]
-    return r
 
 # Thanks for this, Nick and Andrzej ;)
 def GroupBy(h, oldname, newname, grouping):
     hnew = hist.Hist(
         hist.axis.StrCategory(grouping, name=newname),
         *(ax for ax in h.axes if ax.name != oldname),
-        storage=h._storage_type,
+        storage=h.storage_type(),
     )
     for i, indices in enumerate(grouping.values()):
         hnew.view(flow=True)[i] = h[{oldname: indices}][{oldname: sum}].view(flow=True)
 
     return hnew
+
+def DictToHist(histos: dict[str, hist.Hist], name: str=None):
+    """
+    Creates a new axis with the dictionary keys
+    A better option would be hist.Stack.from_dict()
+    but it is sensitive to growth axes not having identical bins
+    """
+    newaxis = hist.axis.StrCategory(histos, name=name)
+    out = None
+    for i, h in enumerate(histos.values()):
+        hnew = hist.Hist(newaxis, *h.axes, storage=h.storage_type())
+        hnew.view(flow=True)[i, ...] = h.view(flow=True)
+        if out is None:
+            out = hnew
+        else:
+            out += hnew
+    return out
+
+def StackToHist(stack, name=None):
+    # https://github.com/scikit-hep/hist/issues/556
+    out = hist.Hist(
+        hist.axis.StrCategory([s.name for s in stack], name=name),
+        *stack.axes,
+        storage=stack[0].storage_type()
+    )
+    for i, h in enumerate(stack):
+        out.view(flow=True)[i, ...] = h.view(flow=True)
+    return out
 
 def plotWithRatio(
     h,
